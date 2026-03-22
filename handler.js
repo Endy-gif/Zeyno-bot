@@ -733,3 +733,118 @@ for (let name in global.plugins) {
         }
 
         let extra = {
+                    match,
+                    usedPrefix,
+                    noPrefix,
+                    _args,
+                    args,
+                    command,
+                    text,
+                    conn: this,
+                    participants: normalizedParticipants,
+                    groupMetadata,
+                    user: { admin: isAdmin ? 'admin' : null },
+                    bot: { admin: isBotAdmin ? 'admin' : null },
+                    isSam,
+                    isROwner,
+                    isOwner,
+                    isRAdmin,
+                    isAdmin,
+                    isBotAdmin,
+                    isPrems,
+                    chatUpdate,
+                    __dirname: ___dirname,
+                    __filename
+                }
+
+                try {
+                    await plugin.call(this, m, extra)
+                    if (!isPrems) m.euro = plugin.euro || false
+                } catch (e) {
+                    m.error = e
+                    console.error(`[ERRORE] Errore nell'esecuzione del plugin per la chat ${m.chat}, mittente ${m.sender}:`, e)
+                    if (e.message.includes('rate-overlimit')) {
+                        console.warn('[AVVISO] Rate limit raggiunto, ritento dopo 2 secondi...')
+                        await delay(2000)
+                    }
+                    let text = format(e)
+                    await this.reply(m.chat, text, m).catch(e => console.error('[ERRORE] Errore nella risposta:', e))
+                } finally {
+                    if (typeof plugin.after === 'function') {
+                        try {
+                            await plugin.after.call(this, m, extra)
+                        } catch (e) {
+                            console.error('[ERRORE] Errore in plugin.after:', e)
+                        }
+                    }
+                    if (m.euro) {
+                        await this.reply(m.chat, `\`Hai utilizzato *${+m.euro}*\``, m, null, global.rcanal).catch(e => console.error('[ERRORE] Errore nell\'invio della risposta:', e))
+                    }
+                }
+                break
+            }
+        }
+    } catch (e) {
+        console.error(`[ERRORE] Errore nel handler per la chat ${m.chat}, mittente ${m.sender}:`, e)
+    } finally {
+        if (m && user && user.muto && !m.fromMe) {
+            await this.sendMessage(m.chat, { delete: m.key }).catch(e => console.error('[ERRORE] Errore nell\'eliminazione del messaggio:', e))
+        }
+
+        if (m && user) {
+            user.exp += m.exp || 0
+            user.euro -= m.euro * 1 || 0
+            if (!user.messages) user.messages = 0;
+            user.messages++;
+            if (m.isGroup) {
+                if (!chat.users) chat.users = {};
+                const senderId = normalizedSender;
+                if (!chat.users[senderId]) {
+                    chat.users[senderId] = { messages: 0 };
+                }
+                chat.users[senderId].messages++;
+            }
+
+            if (m.plugin) {
+                let stats = global.db.data.stats || (global.db.data.stats = {})
+                let stat = stats[m.plugin] || (stats[m.plugin] = {
+                    total: 0,
+                    success: 0,
+                    last: 0,
+                    lastSuccess: 0
+                })
+                const now = +new Date
+                stat.total += 1
+                stat.last = now
+                if (!m.error) {
+                    stat.success += 1
+                    stat.lastSuccess = now
+                }
+            }
+        }
+
+        try {
+            if (!global.opts['noprint'] && m) await (await import(`./lib/print.js`)).default(m, this)
+        } catch (e) {
+            console.error('[ERRORE] Errore in print:', e)
+        }
+
+        let settingsREAD = global.db.data.settings[this.user.jid] || {}
+        if ((global.opts['autoread'] || settingsREAD.autoread2) && m) {
+            await this.readMessages([m.key]).catch(e => console.error('[ERRORE] Errore nella lettura del messaggio:', e))
+        }
+
+        if (chat && chat.reaction && m?.text?.match(/(mente|zione|tà|ivo|osa|issimo|ma|però|eppure|anche|ma|no|se|ai|ciao|si)/gi) && !m.fromMe) {
+            const emot = pickRandom([
+                "🍟", "😃", "😄", "😁", "😆", "🍓", "😅", "😂", "🤣", "🥲", "☺️", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰"
+            ])
+            await this.sendMessage(m.chat, { react: { text: emot, key: m.key } }).catch(e => console.error('[ERRORE] Errore nell\'invio della reazione:', e))
+        }
+    }
+}
+
+global.dfail = async (type, m, conn) => {
+    const nome = m.pushName || 'sam'
+    const etarandom = Math.floor(Math.random() * 21) + 13
+    const msg = {
+   rowner:   '『 𝐙𝐄𝐘𝐍𝐎 𝐁𝐎𝐓 — 𝐎𝐖𝐍𝐄𝐑 』\n\n👑 *RANGO INSUFFICIENTE*\n╰➤ *Richiesto
