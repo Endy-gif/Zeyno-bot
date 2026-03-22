@@ -248,3 +248,272 @@ export async function participantsUpdate({ id, participants, action }) {
               global.nameCache.set(normalizedUser, userName);
             }
             switch (action) {
+                case 'add':
+                    break
+                case 'remove':
+                    break
+                case 'promote':
+                    break
+                case 'demote':
+                    break
+            }
+        }
+    } catch (e) {
+        console.error(`[ERRORE] Errore in participantsUpdate per ${id}:`, e)
+    }
+}
+
+export async function handler(chatUpdate) {
+    this.msgqueque = this.msgqueque || []
+    this.uptime = this.uptime || Date.now()
+    if (!chatUpdate) return
+    this.pushMessage(chatUpdate.messages).catch(console.error)
+    let m = chatUpdate.messages[chatUpdate.messages.length - 1]
+    if (!m) return
+if (m.message?.protocolMessage?.type === 'MESSAGE_EDIT') {
+    const key = m.message.protocolMessage.key;
+    const editedMessage = m.message.protocolMessage.editedMessage;
+    m.key = key;
+    m.message = editedMessage;
+    m.text = editedMessage.conversation || editedMessage.extendedTextMessage?.text || '';
+    m.mtype = Object.keys(editedMessage)[0];
+    console.log(`[EDIT] Messaggio ${key.id} modificato in ${key.remoteJid}`);
+}
+    m = smsg(this, m, global.store)
+    if (!m || !m.key || !m.chat || !m.sender) return
+    if (m.fromMe) return
+    if (m.key.participant && m.key.participant.includes(':') && m.key.participant.split(':')[1]?.includes('@')) return
+
+    if (m.key) {
+        m.key.remoteJid = this.decodeJid(m.key.remoteJid)
+        if (m.key.participant) m.key.participant = this.decodeJid(m.key.participant)
+    }
+    if (!m.key.remoteJid) return
+    if (!this.originalGroupParticipantsUpdate) {
+        this.originalGroupParticipantsUpdate = this.groupParticipantsUpdate
+        this.groupParticipantsUpdate = async function(chatId, users, action) {
+            try {
+                let metadata = global.groupCache.get(chatId)
+                if (!metadata) {
+                    metadata = await fetchMetadata(this, chatId)
+                    if (metadata) global.groupCache.set(chatId, metadata, { ttl: 300 })
+                }
+                if (!metadata) {
+                    console.error('[ERRORE] Nessun metadato del gruppo disponibile per un aggiornamento sicuro')
+                    return this.originalGroupParticipantsUpdate.call(this, chatId, users, action)
+                }
+
+                const correctedUsers = users.map(userJid => {
+                    const decoded = this.decodeJid(userJid)
+                    const phone = decoded.split('@')[0].replace(/:\d+$/, '')
+                    const participant = metadata.participants.find(p => {
+                        const pId = this.decodeJid(p.id)
+                        const pPhone = pId.split('@')[0].replace(/:\d+$/, '')
+                        return pPhone === phone
+                    })
+                    return participant ? participant.id : userJid
+                })
+
+                return this.originalGroupParticipantsUpdate.call(this, chatId, correctedUsers, action)
+            } catch (e) {
+                console.error('[ERRORE] Errore in safeGroupParticipantsUpdate:', e)
+                throw e
+            }
+        }
+    }
+
+    initResponseHandler(this)
+
+    let user = null
+    let chat = null
+    let usedPrefix = null
+    let normalizedSender = null
+    let normalizedBot = null
+    try {
+        let eventHandled = false
+        if (m.message?.eventResponseMessage) {
+            const { eventId, response } = m.message.eventResponseMessage
+            const jid = this.decodeJid(m.key.remoteJid)
+            const userId = this.decodeJid(m.key.participant || m.key.remoteJid)
+            const action = response === 'going' ? 'join' : 'leave'
+
+            try {
+                if (!global.activeEvents) global.activeEvents = new Map()
+                if (!global.activeGiveaways) global.activeGiveaways = new Map()
+
+                let eventData = global.activeEvents.get(eventId) || global.activeGiveaways.get(jid)
+                if (eventData) {
+                    if (!eventData.participants) eventData.participants = new Set()
+                    if (action === 'join') {
+                        eventData.participants.add(userId)
+                    } else {
+                        eventData.participants.delete(userId)
+                    }
+                    eventHandled = true
+                }
+            } catch (e) {
+                console.error('[ERRORE] Errore nel gestire eventResponseMessage:', e)
+            }
+        }
+
+        if (m.message?.interactiveResponseMessage) {
+            const interactiveResponse = m.message.interactiveResponseMessage
+            if (interactiveResponse.nativeFlowResponseMessage?.paramsJson) {
+                try {
+                    const params = JSON.parse(interactiveResponse.nativeFlowResponseMessage.paramsJson)
+                    if (params.id) {
+                        const fakeMessage = {
+                            key: m.key,
+                            message: { conversation: params.id },
+                            messageTimestamp: m.messageTimestamp,
+                            pushName: m.pushName,
+                            broadcast: m.broadcast
+                        }
+                        const processedMsg = smsg(this, fakeMessage)
+                        if (processedMsg) {
+                            processedMsg.text = params.id
+                            return handler.call(this, { messages: [processedMsg] })
+                        }
+                    }
+                } catch (e) {
+                    console.error('❌ Errore parsing nativeFlowResponse:', e)
+                }
+            }
+        }
+
+        if (!global.db.data) await global.loadDatabase()
+        m.exp = 0
+        m.euro = false
+        m.isCommand = false
+
+        normalizedSender = this.decodeJid(m.sender)
+        normalizedBot = this.decodeJid(this.user.jid)
+        if (!normalizedSender) return;
+        user = global.db.data.users[normalizedSender] || (global.db.data.users[normalizedSender] = {
+            exp: 0,
+            euro: 10,
+            muto: false,
+            registered: false,
+            name: m.pushName || '?',
+            age: -1,
+            regTime: -1,
+            banned: false,
+            bank: 0,
+            level: 0,
+            firstTime: Date.now(),
+            spam: 0
+        })
+        chat = global.db.data.chats[m.chat] || (global.db.data.chats[m.chat] = {
+            isBanned: false,
+            welcome: false,
+            goodbye: false,
+            ai: false,
+            vocali: false,
+            antiporno: false,
+            antioneview: false,
+            autolevelup: false,
+            antivoip: false,
+            rileva: false,
+            modoadmin: false,
+            antiLink: false,
+            antiLink2: false,
+            reaction: false,
+            antispam: false,
+            expired: 0,
+            users: {}
+        })
+        let settings = global.db.data.settings[this.user.jid] || (global.db.data.settings[this.user.jid] = {
+            autoread: false,
+            jadibotmd: false,
+            antiPrivate: true,
+            soloCreatore: false,
+            status: 0
+        })
+
+        if (m.mtype === 'pollUpdateMessage') return
+        if (m.mtype === 'reactionMessage') return
+        let groupMetadata = m.isGroup ? global.groupCache.get(m.chat) : null
+        let participants = null
+        let normalizedParticipants = null
+        let isBotAdmin = false
+        let isAdmin = false
+        let isRAdmin = false
+        let isSam = global.owner.some(([num]) => num + '@s.whatsapp.net' === normalizedSender)
+        let isROwner = isSam || global.owner.some(([num]) => num + '@s.whatsapp.net' === normalizedSender)
+        let isOwner = isROwner || m.fromMe
+        let isMods = isOwner || global.mods?.map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net').includes(normalizedSender) || false
+        let isPrems = isROwner || global.prems?.map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net').includes(normalizedSender) || false
+        if (m.isGroup) {
+            if (!groupMetadata) {
+                groupMetadata = await fetchGroupMetadataWithRetry(this, m.chat)
+                if (groupMetadata) {
+                    groupMetadata.fetchTime = Date.now()
+                    global.groupCache.set(m.chat, groupMetadata, { ttl: 300 })
+                }
+            }
+            if (groupMetadata) {
+                participants = groupMetadata.participants
+                normalizedParticipants = participants.map(u => {
+                    const normalizedId = this.decodeJid(u.id)
+                    return { ...u, id: normalizedId, jid: u.jid || normalizedId }
+                })
+                const normalizedOwner = groupMetadata.owner ? this.decodeJid(groupMetadata.owner) : null
+                const normalizedOwnerLid = groupMetadata.ownerLid ? this.decodeJid(groupMetadata.ownerLid) : null
+                isAdmin = participants.some(u => {
+                    const participantIds = [
+                        this.decodeJid(u.id),
+                        u.jid ? this.decodeJid(u.jid) : null,
+                        u.lid ? this.decodeJid(u.lid) : null
+                    ].filter(Boolean)
+                    const isMatch = participantIds.includes(normalizedSender)
+                    return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                })
+
+                isBotAdmin = participants.some(u => {
+                    const participantIds = [
+                        this.decodeJid(u.id),
+                        u.jid ? this.decodeJid(u.jid) : null,
+                        u.lid ? this.decodeJid(u.lid) : null
+                    ].filter(Boolean)
+                    const isMatch = participantIds.includes(normalizedBot)
+                    return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                }) || (normalizedBot === normalizedOwner || normalizedBot === normalizedOwnerLid)
+
+                isRAdmin = isAdmin && (normalizedSender === normalizedOwner || normalizedSender === normalizedOwnerLid)
+
+                if (m.isGroup && !isAdmin) {
+                    const secondMetadata = await fetchGroupMetadataWithRetry(this, m.chat)
+                    if (secondMetadata) {
+                        secondMetadata.fetchTime = Date.now()
+                        global.groupCache.set(m.chat, secondMetadata, { ttl: 300 })
+                        participants = secondMetadata.participants
+                        normalizedParticipants = participants.map(u => {
+                            const normalizedId = this.decodeJid(u.id)
+                            return { ...u, id: normalizedId, jid: u.jid || normalizedId }
+                        })
+
+                        isAdmin = participants.some(u => {
+                            const participantIds = [
+                                this.decodeJid(u.id),
+                                u.jid ? this.decodeJid(u.jid) : null,
+                                u.lid ? this.decodeJid(u.lid) : null
+                            ].filter(Boolean)
+                            const isMatch = participantIds.includes(normalizedSender)
+                            return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                        })
+
+                        isBotAdmin = participants.some(u => {
+                            const participantIds = [
+                                this.decodeJid(u.id),
+                                u.jid ? this.decodeJid(u.jid) : null,
+                                u.lid ? this.decodeJid(u.lid) : null
+                            ].filter(Boolean)
+                            const isMatch = participantIds.includes(normalizedBot)
+                            return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                        }) || (normalizedBot === normalizedOwner || normalizedBot === normalizedOwnerLid)
+                    }
+                }
+            }
+        }
+
+        const ___dirname = join(path.dirname(fileURLToPath(import.meta.url)), './plugins')
