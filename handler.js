@@ -443,3 +443,203 @@ if (m.message?.protocolMessage?.type === 'MESSAGE_EDIT') {
         let isOwner = isROwner || m.fromMe
         let isMods = isOwner || global.mods?.map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net').includes(normalizedSender) || false
         let isPrems = isROwner || global.prems?.map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net').includes(normalizedSender) || false
+        if (m.isGroup) {
+            if (!groupMetadata) {
+                groupMetadata = await fetchGroupMetadataWithRetry(this, m.chat)
+                if (groupMetadata) {
+                    groupMetadata.fetchTime = Date.now()
+                    global.groupCache.set(m.chat, groupMetadata, { ttl: 300 })
+                }
+            }
+            if (groupMetadata) {
+                participants = groupMetadata.participants
+                normalizedParticipants = participants.map(u => {
+                    const normalizedId = this.decodeJid(u.id)
+                    return { ...u, id: normalizedId, jid: u.jid || normalizedId }
+                })
+                const normalizedOwner = groupMetadata.owner ? this.decodeJid(groupMetadata.owner) : null
+                const normalizedOwnerLid = groupMetadata.ownerLid ? this.decodeJid(groupMetadata.ownerLid) : null
+                isAdmin = participants.some(u => {
+                    const participantIds = [
+                        this.decodeJid(u.id),
+                        u.jid ? this.decodeJid(u.jid) : null,
+                        u.lid ? this.decodeJid(u.lid) : null
+                    ].filter(Boolean)
+                    const isMatch = participantIds.includes(normalizedSender)
+                    return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                })
+
+                isBotAdmin = participants.some(u => {
+                    const participantIds = [
+                        this.decodeJid(u.id),
+                        u.jid ? this.decodeJid(u.jid) : null,
+                        u.lid ? this.decodeJid(u.lid) : null
+                    ].filter(Boolean)
+                    const isMatch = participantIds.includes(normalizedBot)
+                    return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                }) || (normalizedBot === normalizedOwner || normalizedBot === normalizedOwnerLid)
+
+                isRAdmin = isAdmin && (normalizedSender === normalizedOwner || normalizedSender === normalizedOwnerLid)
+
+                if (m.isGroup && !isAdmin) {
+                    const secondMetadata = await fetchGroupMetadataWithRetry(this, m.chat)
+                    if (secondMetadata) {
+                        secondMetadata.fetchTime = Date.now()
+                        global.groupCache.set(m.chat, secondMetadata, { ttl: 300 })
+                        participants = secondMetadata.participants
+                        normalizedParticipants = participants.map(u => {
+                            const normalizedId = this.decodeJid(u.id)
+                            return { ...u, id: normalizedId, jid: u.jid || normalizedId }
+                        })
+
+                        isAdmin = participants.some(u => {
+                            const participantIds = [
+                                this.decodeJid(u.id),
+                                u.jid ? this.decodeJid(u.jid) : null,
+                                u.lid ? this.decodeJid(u.lid) : null
+                            ].filter(Boolean)
+                            const isMatch = participantIds.includes(normalizedSender)
+                            return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                        })
+
+                        isBotAdmin = participants.some(u => {
+                            const participantIds = [
+                                this.decodeJid(u.id),
+                                u.jid ? this.decodeJid(u.jid) : null,
+                                u.lid ? this.decodeJid(u.lid) : null
+                            ].filter(Boolean)
+                            const isMatch = participantIds.includes(normalizedBot)
+                            return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                        }) || (normalizedBot === normalizedOwner || normalizedBot === normalizedOwnerLid)
+                    }
+                }
+            }
+        }
+
+        const ___dirname = join(path.dirname(fileURLToPath(import.meta.url)), './plugins')
+        for (let name in global.plugins) {
+            let plugin = global.plugins[name]
+            if (!plugin) continue
+
+            const __filename = join(___dirname, name)
+            if (typeof plugin.all === 'function') {
+                try {
+                    await plugin.all.call(this, m, {
+                        chatUpdate,
+                        __dirname: ___dirname,
+                        __filename
+                    })
+                } catch (e) {
+                    console.error('[ERRORE] Errore in plugin.all:', e)
+                }
+            }
+
+            const str2Regex = str => str.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
+            let _prefix = plugin.customPrefix || global.prefix || '.'
+            let match = (_prefix instanceof RegExp ? [[_prefix.exec(m.text), _prefix]] :
+                Array.isArray(_prefix) ? _prefix.map(p => [p instanceof RegExp ? p : new RegExp(str2Regex(p)).exec(m.text), p]) :
+                typeof _prefix === 'string' ? [[new RegExp(str2Regex(_prefix)).exec(m.text), _prefix]] :
+                [[[], new RegExp]]).find(p => p[1])
+
+            if (typeof plugin.before === 'function') {
+                if (await plugin.before.call(this, m, {
+                    match,
+                    conn: this,
+                    participants: normalizedParticipants,
+                    groupMetadata,
+                    user: { admin: isAdmin ? 'admin' : null },
+                    bot: { admin: isBotAdmin ? 'admin' : null },
+                    isSam,
+                    isROwner,
+                    isOwner,
+                    isRAdmin,
+                    isAdmin,
+                    isBotAdmin,
+                    isPrems,
+                    chatUpdate,
+                    __dirname: ___dirname,
+                    __filename
+                })) continue
+            }
+
+            if (typeof plugin !== 'function') continue
+
+            if (!match || !match[0]) continue
+
+            usedPrefix = (match[0] || '')[0]
+            if (usedPrefix) {
+                let noPrefix = m.text.replace(usedPrefix, '')
+                let [command, ...args] = noPrefix.trim().split` `.filter(v => v)
+                args = args || []
+                let _args = noPrefix.trim().split` `.slice(1)
+                let text = _args.join` `
+                command = command?.toLowerCase() || ''
+                let fail = plugin.fail || global.dfail
+                let isAccept = plugin.command instanceof RegExp ? plugin.command.test(command) :
+                    Array.isArray(plugin.command) ? plugin.command.some(cmd => cmd instanceof RegExp ? cmd.test(command) : cmd === command) :
+                    typeof plugin.command === 'string' ? plugin.command === command : false
+
+                if (!isAccept) continue
+
+                if (m.isGroup && (plugin.admin || plugin.botAdmin)) {
+                    const freshMetadata = global.groupCache.get(m.chat) || await fetchGroupMetadataWithRetry(this, m.chat)
+                    if (freshMetadata) {
+                        freshMetadata.fetchTime = Date.now()
+                        global.groupCache.set(m.chat, freshMetadata, { ttl: 300 })
+                        groupMetadata = freshMetadata
+                        participants = groupMetadata.participants
+                        normalizedParticipants = participants.map(u => {
+                            const normalizedId = this.decodeJid(u.id)
+                            return { ...u, id: normalizedId, jid: u.jid || normalizedId }
+                        })
+
+                        const normalizedOwner = groupMetadata.owner ? this.decodeJid(groupMetadata.owner) : null
+                        const normalizedOwnerLid = groupMetadata.ownerLid ? this.decodeJid(groupMetadata.ownerLid) : null
+
+                        isAdmin = participants.some(u => {
+                            const participantIds = [
+                                this.decodeJid(u.id),
+                                u.jid ? this.decodeJid(u.jid) : null,
+                                u.lid ? this.decodeJid(u.lid) : null
+                            ].filter(Boolean)
+                            const isMatch = participantIds.includes(normalizedSender)
+                            return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                        })
+
+                        isBotAdmin = participants.some(u => {
+                            const participantIds = [
+                                this.decodeJid(u.id),
+                                u.jid ? this.decodeJid(u.jid) : null,
+                                u.lid ? this.decodeJid(u.lid) : null
+                            ].filter(Boolean)
+                            const isMatch = participantIds.includes(normalizedBot)
+                            return isMatch && (u.admin === 'admin' || u.admin === 'superadmin' || u.isAdmin === true || u.admin === true)
+                        }) || (normalizedBot === normalizedOwner || normalizedBot === normalizedOwnerLid)
+
+                        isRAdmin = isAdmin && (normalizedSender === normalizedOwner || normalizedSender === normalizedOwnerLid)
+                    }
+                }
+
+                if (plugin.disabled && !isOwner) {
+                    fail('disabled', m, this)
+                    continue
+                }
+
+                if (user.muto && !isROwner && !isOwner) {
+                    await this.sendMessage(m.chat, { text: `🚫 Non puoi usare i comandi se sei stato mutato gay!!` }, { quoted: m }).catch(e => console.error('[ERRORE] Errore nell\'invio del messaggio:', e))
+                    return
+                }
+
+                const ignoredGlobally = global.ignoredUsersGlobal.has(normalizedSender)
+                const ignoredInGroup = m.isGroup && global.ignoredUsersGroup[m.chat]?.has(normalizedSender)
+                if ((ignoredGlobally || ignoredInGroup) && !isROwner) {
+                    await this.sendMessage(m.chat, { text: `🚫 Non sei autorizzato a usare comandi.` }, { quoted: m }).catch(e => console.error('[ERRORE] Errore nell\'invio del messaggio:', e))
+                    return
+                }
+
+                m.plugin = name
+                if (chat.isBanned && !isROwner && !['gp-sbanchat.js', 'creatore-exec.js', 'gp-delete.js'].includes(name)) return
+                if (user.banned && !isROwner && name !== 'creatore-banuser.js') {
+                    if (user.antispam > 2) return
+                    await this.sendMessage(m.chat, {
+                        text: `🚫 *Sei stato bannato/a dall'utilizzo del bot*.\n\n${user.bannedReason ? `Motivo: ${user.bannedReason}` : `Motivo: Non specificato`}`
