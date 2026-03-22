@@ -1,0 +1,75 @@
+{
+  "name": "zeyno-bot",
+  "version": "1.0.0",
+  "description": "bot whatapp create by Endy",
+  "main": "main.js",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Endy-gif",
+    "url": "https://github.com/Endy-gif"
+  },
+  "homepage": "https://github.com/Endy-gif/Zeyno-bot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Endy-gif/Zeyno-bot.git"
+  },
+  "bugs": {
+    "url": "git+https://github.com/Endy-gif/Zeyno-bot/issues"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "bot-MD",
+    "javascript",
+    "nodejs",
+    "main",
+    "baileys",
+    "whatsapp-bot",
+    "zeyno-bot",
+    "@realvare/based",
+    "@realvare/baileys"
+  ],
+  "directories": {
+    "lib": "lib",
+    "plugins": "plugins",
+    "media": "media"
+  },
+  "scripts": {
+    "start": "node main.js",
+    "code": "node main.js code",
+    "qr": "node main.js qr"
+  },
+  "dependencies": {
+    "@realvare/baileys": "latest",
+    "awesome-phonenumber": "^3.4.0",
+    "zeyno": "^1.12.2",
+    "canvas": "^3.2.0",
+    "chalk": "^5.6.2",
+    "cheerio": "^1.1.2",
+    "file-type": "^21.0.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "formdata-node": "^6.0.3",
+    "jimp": "^0.22.10",
+    "jsdom": "^27.0.0",
+    "jsqr": "latest",
+    "lodash": "^4.17.21",
+    "lowdb": "^3.0.0",
+    "msedge-tts": "latest",
+    "node-cache": "latest",
+    "node-fetch": "latest",
+    "node-webpmux": "^3.2.1",
+    "performance-now": "^2.1.0",
+    "pino": "^10.1.0",
+    "puppeteer": "latest",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "ruhend-scraper": "latest",
+    "yargs": "^18.0.0",
+    "yt-search": "latest"
+  },
+  "engines": {
+    "node": ">=20.2.0",
+    "npm": ">=10.9.2"
+  }
+}
