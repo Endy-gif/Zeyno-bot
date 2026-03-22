@@ -469,3 +469,56 @@ global.reloadHandler = async function (restatConn) {
                 if (anticallPlugin && typeof anticallPlugin.onCall === 'function') {
                     anticallPlugin.onCall.call(conn, call, { conn, callId, callFrom }).catch(() => {});
                 }
+            }
+        };
+    }
+    if (!isInit) {
+        conn.ev.on('messages.upsert', conn.handler);
+        conn.ev.on('connection.update', conn.connectionUpdate);
+        conn.ev.on('creds.update', conn.credsUpdate);
+        conn.ev.on('call', conn.callUpdate);
+    } else {
+        conn.ev.on('messages.upsert', conn.handler);
+        conn.ev.on('connection.update', conn.connectionUpdate);
+        conn.ev.on('creds.update', conn.credsUpdate);
+        conn.ev.on('call', conn.callUpdate);
+    }
+    isInit = false;
+};
+
+global.reloadHandler();
+
+let pluginFolder = await import('./lib/loader.js');
+let pluginFilter = filename => /^pp?-(.+?)(?:\.js)?$/i.test(filename);
+global.plugins = {};
+global.pluginsSkip = [];
+async function filesInit() {
+    return new Promise(async (resolve, reject) => {
+        let files = readdirSync(join(__dirname, 'plugins'));
+        files = files.filter(pluginFilter);
+        for (let file of files) {
+            try {
+                let filename = join(__dirname, 'plugins', file);
+                let fileData = readFileSync(filename);
+                let stats = statSync(filename);
+                let compiledFile = `(${fileData.toString('utf8')})()`;
+                await pluginFolder.fileCall(global, {
+                    filename,
+                    text: fileData.toString('utf8'),
+                });
+            } catch (e) {
+                console.error('[ERRORE] Plugin Load Error:', e);
+            }
+        }
+        resolve();
+    });
+}
+filesInit().then(_ => console.log(chalk.hex('#7c3aed').bold('[✓] Plugin Loader Completato')));
+
+global.api = (name, path = '/', query = {}, apikeyqueryname) => (name in global.APIs ? global.APIs[name] : name) + path + (query || apikeyqueryname ? '?' + new URLSearchParams(Object.entries({ ...query, ...(apikeyqueryname ? { [apikeyqueryname]: global.APIKeys[name in global.APIs ? global.APIs[name] : name] } : {}) })) : '');
+global.timestamp.connect = new Date;
+setInterval(async () => {
+    if (global.db.data) await global.db.write().catch(console.error);
+}, 30000);
+
+if (opts['server']) (await import('./server.js')).default(global.conn, PORT);
