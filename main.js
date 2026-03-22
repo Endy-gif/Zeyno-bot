@@ -285,3 +285,187 @@ if (!opts['test']) {
                         try {
                             const stats = statSync(filePath);
                             if (stats.isFile() && (Date.now() - stats.mtimeMs) > 2 * 60 * 1
+async function connectionUpdate(update) {
+    const { connection, lastDisconnect, isNewLogin, qr } = update;
+    global.stopped = connection;
+    if (isNewLogin) conn.isInit = true;
+    const code = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+    if (code && code !== DisconnectReason.loggedOut) {
+        await global.reloadHandler(true).catch(console.error);
+        global.timestamp.connect = new Date;
+    }
+    if (global.db.data == null) await loadDatabase();
+    if (qr && (opzione === '1' || methodCodeQR) && !global.qrGenerated) {
+        console.log(chalk.bold.yellow(`\n 🪐 SCANSIONA IL CODICE QR - SCADE TRA 45 SECONDI 🪐`));
+        global.qrGenerated = true;
+    }
+    if (connection === 'open') {
+                const RESTART_FILE = path.resolve('./tmp/restart-state.json');
+
+        if (fs.existsSync(RESTART_FILE)) {
+            let restartInfo = null;
+            let startupErrors = 0;
+
+            try {
+                restartInfo = JSON.parse(fs.readFileSync(RESTART_FILE, 'utf-8'));
+            } catch (e) {
+                startupErrors++;
+            }
+
+            if (restartInfo?.chat) {
+                try {
+                    const elapsedMs = Date.now() - (restartInfo.startedAt || Date.now());
+                    const elapsedSec = (elapsedMs / 1000).toFixed(1);
+                    const totalErrors = (restartInfo.errors || 0) + startupErrors;
+
+                    await conn.sendMessage(restartInfo.chat, {
+                        text: `» Riavvio completato!\n⏱️ Tempo: ${elapsedSec}s\n🧾 Errori: ${totalErrors}`,
+                        mentions: restartInfo.sender ? [restartInfo.sender] : []
+                    });
+                } catch (e) {
+                    console.error('Errore invio post-restart:', e);
+                }
+            }
+
+            try {
+                fs.unlinkSync(RESTART_FILE);
+            } catch (e) {
+                console.error('Errore eliminazione file restart:', e);
+            }
+        }
+        global.qrGenerated = false;
+        global.connectionMessagesPrinted = {};
+
+        if (!global.isLogoPrinted) {
+            const coloriZeyno = [
+    '#1a1a2e', '#0099ff', '#7c3aed', '#0099ff', '#0099ff', '#7c3aed', '#0099ff', '#1a1a2e',
+    '#1a1a2e', '#0099ff', '#7c3aed', '#0099ff', '#0099ff', '#7c3aed'
+];
+
+const zeynobot = [
+    ` ███████╗███████╗██╗   ██╗███╗   ██╗ ██████╗ `,
+    `██╔════╝██╔════╝╚██╗ ██╔╝████╗  ██║██╔═══██╗`,
+    `███████╗█████╗   ╚████╔╝ ██╔██╗ ██║██║   ██║`,
+    `╚════██║██╔══╝    ╚██╔╝  ██║╚██╗██║██║   ██║`,
+    `███████║███████╗   ██║   ██║ ╚████║╚██████╔╝`,
+    `╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═══╝ ╚═════╝ `
+];
+
+zeynobot.forEach((line, i) => {
+    const color = coloriZeyno[i] || coloriZeyno[coloriZeyno.length - 1];
+    console.log(chalk.hex(color).bold(line));
+});
+
+global.isLogoPrinted = true;
+
+        }
+    }
+    if (connection === 'close') {
+        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+        if (reason === DisconnectReason.badSession) {
+            if (!global.connectionMessagesPrinted.badSession) {
+                            console.log(chalk.bold.hex('#ff3333')(`\n⚠️❗ SESSIONE NON VALIDA, ELIMINA LA CARTELLA ${global.authFile} E SCANSIONA IL CODICE QR ⚠️`));
+                global.connectionMessagesPrinted.badSession = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.connectionLost) {
+            if (!global.connectionMessagesPrinted.connectionLost) {
+                console.log(chalk.hex('#0099ff').bold(`\nCONNESSIONE PERSA COL SERVER\nRICONNESSIONE IN CORSO... \n𝐙𝐄𝐘𝐍𝐎 𝐁𝐎𝐓`));
+                global.connectionMessagesPrinted.connectionLost = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.connectionReplaced) {
+            if (!global.connectionMessagesPrinted.connectionReplaced) {
+                console.log(chalk.hex('#0099ff').bold(`CONNESSIONE SOSTITUITA\nÈ stata aperta un'altra sessione, \nchiudi prima quella attuale.\n𝐙𝐄𝐘𝐍𝐎 𝐁𝐎𝐓`));
+                global.connectionMessagesPrinted.connectionReplaced = true;
+            }
+        } else if (reason === DisconnectReason.loggedOut) {
+            console.log(chalk.bold.hex('#ff3333')(`\n⚠️ DISCONNESSO, CARTELLA ${global.authFile} ELIMINATA. RIAVVIA IL BOT E SCANSIONA IL CODICE QR ⚠️`));
+            try {
+                if (fs.existsSync(global.authFile)) {
+                    fs.rmSync(global.authFile, { recursive: true, force: true });
+                }
+            } catch (e) {
+                console.error('Errore nell\'eliminazione della cartella sessione:', e);
+            }
+            process.exit(1);
+        } else if (reason === DisconnectReason.restartRequired) {
+            if (!global.connectionMessagesPrinted.restartRequired) {
+                console.log(chalk.hex('#1a1a2e').bold(`\nCONNESSIONE AL SERVER`));
+                global.connectionMessagesPrinted.restartRequired = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.timedOut) {
+            if (!global.connectionMessagesPrinted.timedOut) {
+                console.log(chalk.hex('#0099ff').bold(`\nTIMEOUT CONNESSIONE\nRICONNESSIONE IN CORSO...\n𝐙𝐄𝐘𝐍𝐎 𝐁𝐎𝐓`));
+                global.connectionMessagesPrinted.timedOut = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason !== DisconnectReason.connectionClosed) {
+            if (!global.connectionMessagesPrinted.unknown) {
+                console.log(chalk.bold.hex('#ff3333')(`\n⚠️❗ MOTIVO DISCONNESSIONE SCONOSCIUTO: ${reason || 'Non trovato'} >> ${connection || 'Non trovato'}`));
+                global.connectionMessagesPrinted.unknown = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        }
+    }
+}
+process.on('uncaughtException', console.error);
+(async () => {
+    try {
+        conn.ev.on('connection.update', connectionUpdate);
+        conn.ev.on('creds.update', saveCreds);
+        console.log(chalk.hex('#0099ff').bold(`𝐙𝐄𝐘𝐍𝐎 𝐁𝐎𝐓 connesso correttamente`));
+    } catch (error) {
+        console.error(chalk.bold.bgHex('#ff3333')(`🥀 Errore nell'avvio del bot: `, error));
+    }
+})();
+let isInit = true;
+let handler = await import('./handler.js');
+global.reloadHandler = async function (restatConn) {
+    try {
+        const Handler = await import(`./handler.js?update=${Date.now()}`).catch(console.error);
+        if (Object.keys(Handler || {}).length) handler = Handler;
+    } catch (e) {
+        console.error(e);
+    }
+    if (restatConn) {
+        try {
+            global.conn.ws.close();
+        } catch { }
+        global.cacheListenersSet = false;
+        conn.ev.removeAllListeners();
+        global.conn = makeWASocket(connectionOptions);
+        global.store.bind(global.conn.ev);
+        isInit = true;
+    }
+    if (!isInit) {
+        conn.ev.off('messages.upsert', conn.handler);
+        conn.ev.off('connection.update', conn.connectionUpdate);
+        conn.ev.off('creds.update', conn.credsUpdate);
+        if (conn.callUpdate) conn.ev.off('call', conn.callUpdate);
+    }
+    conn.handler = handler.handler.bind(global.conn);
+    conn.connectionUpdate = connectionUpdate.bind(global.conn);
+    conn.credsUpdate = saveCreds;
+    conn.callUpdate = async (calls) => {
+        try {
+            global.processedCalls = global.processedCalls || new Map();
+            for (const call of calls || []) {
+                const status = call?.status;
+                const callId = call?.id;
+                const callFrom = call?.from;
+                if (!status || !callId || !callFrom) continue;
+
+                if (status === 'terminate') {
+                    global.processedCalls.delete(callId);
+                    continue;
+                }
+                if (status !== 'offer') continue;
+                if (global.processedCalls.has(callId)) continue;
+                global.processedCalls.set(callId, true);
+
+                const anticallPlugin = global.plugins?.['anti-call.js'];
+                if (anticallPlugin && typeof anticallPlugin.onCall === 'function') {
+                    anticallPlugin.onCall.call(conn, call, { conn, callId, callFrom }).catch(() => {});
+                }
