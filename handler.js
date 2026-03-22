@@ -289,3 +289,156 @@ export async function handler(chatUpdate) {
         if (m.key.participant) m.key.participant = this.decodeJid(m.key.participant)
     }
     if (!m.key.remoteJid) return
+if (!this.originalGroupParticipantsUpdate) {
+    this.originalGroupParticipantsUpdate = this.groupParticipantsUpdate
+    this.groupParticipantsUpdate = async function(chatId, users, action) {
+        try {
+            let metadata = global.groupCache.get(chatId)
+            if (!metadata) {
+                metadata = await fetchMetadata(this, chatId)
+                if (metadata) global.groupCache.set(chatId, metadata, { ttl: 300 })
+            }
+            if (!metadata) {
+                console.error('[ERRORE] Nessun metadato del gruppo disponibile per un aggiornamento sicuro')
+                return this.originalGroupParticipantsUpdate.call(this, chatId, users, action)
+            }
+
+            const correctedUsers = users.map(userJid => {
+                const decoded = this.decodeJid(userJid)
+                const phone = decoded.split('@')[0].replace(/:\d+$/, '')
+                const participant = metadata.participants.find(p => {
+                    const pId = this.decodeJid(p.id)
+                    const pPhone = pId.split('@')[0].replace(/:\d+$/, '')
+                    return pPhone === phone
+                })
+                return participant ? participant.id : userJid
+            })
+
+            return this.originalGroupParticipantsUpdate.call(this, chatId, correctedUsers, action)
+        } catch (e) {
+            console.error('[ERRORE] Errore in safeGroupParticipantsUpdate:', e)
+            throw e
+        }
+    }
+}
+
+initResponseHandler(this)
+
+let user = null
+let chat = null
+let usedPrefix = null
+let normalizedSender = null
+let normalizedBot = null
+try {
+    let eventHandled = false
+    if (m.message?.eventResponseMessage) {
+        const { eventId, response } = m.message.eventResponseMessage
+        const jid = this.decodeJid(m.key.remoteJid)
+        const userId = this.decodeJid(m.key.participant || m.key.remoteJid)
+        const action = response === 'going' ? 'join' : 'leave'
+
+        try {
+            if (!global.activeEvents) global.activeEvents = new Map()
+            if (!global.activeGiveaways) global.activeGiveaways = new Map()
+
+            let eventData = global.activeEvents.get(eventId) || global.activeGiveaways.get(jid)
+            if (eventData) {
+                if (!eventData.participants) eventData.participants = new Set()
+                if (action === 'join') {
+                    eventData.participants.add(userId)
+                } else {
+                    eventData.participants.delete(userId)
+                }
+                eventHandled = true
+            }
+        } catch (e) {
+            console.error('[ERRORE] Errore nel gestire eventResponseMessage:', e)
+        }
+    }
+
+    if (m.message?.interactiveResponseMessage) {
+        const interactiveResponse = m.message.interactiveResponseMessage
+        if (interactiveResponse.nativeFlowResponseMessage?.paramsJson) {
+            try {
+                const params = JSON.parse(interactiveResponse.nativeFlowResponseMessage.paramsJson)
+                if (params.id) {
+                    const fakeMessage = {
+                        key: m.key,
+                        message: { conversation: params.id },
+                        messageTimestamp: m.messageTimestamp,
+                        pushName: m.pushName,
+                        broadcast: m.broadcast
+                    }
+                    const processedMsg = smsg(this, fakeMessage)
+                    if (processedMsg) {
+                        processedMsg.text = params.id
+                        return handler.call(this, { messages: [processedMsg] })
+                    }
+                }
+            } catch (e) {
+                console.error('❌ Errore parsing nativeFlowResponse:', e)
+            }
+        }
+    }
+
+    if (!global.db.data) await global.loadDatabase()
+    m.exp = 0
+    m.euro = false
+    m.isCommand = false
+
+    normalizedSender = this.decodeJid(m.sender)
+    normalizedBot = this.decodeJid(this.user.jid)
+    if (!normalizedSender) return;
+    user = global.db.data.users[normalizedSender] || (global.db.data.users[normalizedSender] = {
+        exp: 0,
+        euro: 10,
+        muto: false,
+        registered: false,
+        name: m.pushName || '?',
+        age: -1,
+        regTime: -1,
+        banned: false,
+        bank: 0,
+        level: 0,
+        firstTime: Date.now(),
+        spam: 0
+    })
+    chat = global.db.data.chats[m.chat] || (global.db.data.chats[m.chat] = {
+        isBanned: false,
+        welcome: false,
+        goodbye: false,
+        ai: false,
+        vocali: false,
+        antiporno: false,
+        antioneview: false,
+        autolevelup: false,
+        antivoip: false,
+        rileva: false,
+        modoadmin: false,
+        antiLink: false,
+        antiLink2: false,
+        reaction: false,
+        antispam: false,
+        expired: 0,
+        users: {}
+    })
+    let settings = global.db.data.settings[this.user.jid] || (global.db.data.settings[this.user.jid] = {
+        autoread: false,
+        jadibotmd: false,
+        antiPrivate: true,
+        soloCreatore: false,
+        status: 0
+    })
+
+    if (m.mtype === 'pollUpdateMessage') return
+    if (m.mtype === 'reactionMessage') return
+    let groupMetadata = m.isGroup ? global.groupCache.get(m.chat) : null
+    let participants = null
+    let normalizedParticipants = null
+    let isBotAdmin = false
+    let isAdmin = false
+    let isRAdmin = false
+    let isSam = global.owner.some(([num]) => num + '@s.whatsapp.net' === normalizedSender)
+    let isROwner = isSam || global.owner.some(([num]) => num + '@s.whatsapp.net' === normalizedSender)
+    let isOwner = isROwner || m.fromMe
+    let isMods = is
