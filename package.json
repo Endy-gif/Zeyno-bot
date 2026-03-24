@@ -1,7 +1,7 @@
 {
   "name": "zeyno-bot",
   "version": "1.0.0",
-  "description": "bot whatapp create by Endy",
+  "description": "bot whatsapp create by Endy",
   "main": "main.js",
   "type": "module",
   "license": "Apache-2.0",
