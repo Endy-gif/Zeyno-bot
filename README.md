@@ -1,1 +1,1 @@
-# Zeyno-bot
+Zeyno bot Regna ovunque 
