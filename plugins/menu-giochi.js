@@ -90,6 +90,6 @@ function clockString(ms) {
 
 handler.help = ['giochi', 'menugiochi'];
 handler.tags = ['menu'];
-handler.command = /^(menuplay|menugiochi)$/i;
+handler.command = /^(play|menugiochi)$/i;
 
 export default handler;
