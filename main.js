@@ -109,9 +109,7 @@ let opzione;
 if (!methodCodeQR && !methodCode && !fs.existsSync(`./${authFile}/creds.json`)) {
     do {
         const cyan = chalk.hex('#00BFFF');
-        const purple = chalk.hex('#9D4EDD');
         const magenta = chalk.hex('#FF10F0');
-        const lilla = chalk.hex('#C77DFF');
         const blu = chalk.hex('#3A86FF');
         const rosso = chalk.hex('#FF006E');
         const nero = chalk.hex('#000000');
