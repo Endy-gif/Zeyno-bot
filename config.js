@@ -57,7 +57,7 @@ global.APIKeys = {
     genius:          'zeyno',
     unsplash:        'zeyno',
     removebg:        'FEx4CYmYN1QRQWD1mbZp87jV',
-    openrouter:      'axion',
+    openrouter:      'zeyno',
     lastfm:          '36f859a1fc4121e7f0e931806507d5f9',
 }
 
