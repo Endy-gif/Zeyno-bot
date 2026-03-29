@@ -1,0 +1,52 @@
+import { performance } from 'perf_hooks';
+
+const handler = async (message, { conn, usedPrefix = '#' }) => {
+
+    const userId = message.sender;
+    const uptimeMs = process.uptime() * 1000;
+    const uptimeStr = clockString(uptimeMs);
+    const totalUsers = Object.keys(global.db?.data?.users || {}).length;
+
+    const menuBody = `
+『 Ƶɛყŋơცơɬ • 𝐌𝐎𝐃 』
+╼━━━━━━━━━━━━━━╾
+  ◈ *ᴜsᴇʀ:* @${userId.split('@')[0]}
+  ◈ *ᴜᴘᴛɪᴍᴇ:* ${uptimeStr}
+  ◈ *ᴜᴛᴇɴᴛɪ:* ${totalUsers}
+  ◈ *ᴀᴄᴄᴇssᴏ:* ᴍᴏᴅ
+╼━━━━━━━━━━━━━━╾
+
+╭━━━〔 👮 ᴄᴏᴍᴀɴᴅɪ 〕━⬣
+┃ 🧙‍♂️ ${usedPrefix}tag
+┃ ⚡ ${usedPrefix}ping
+┃ 🚫 ${usedPrefix}del
+┃ 💀 ${usedPrefix}nukegp
+┃ ⚠️ ${usedPrefix}warn
+┃ ✅ ${usedPrefix}unwarn
+╰━━━━━━━━━━━━━━━━⬣
+
+╭━━━〔 📌 ɪɴғᴏ 〕━⬣
+┃ ᴠᴇʀsɪᴏɴᴇ: 5.0
+┃ sᴛᴀᴛᴜs: ᴏɴʟɪɴᴇ 🔥
+╰━━━━━━━━━━━━━━━━⬣
+`.trim();
+
+    await conn.sendMessage(message.chat, {
+        text: menuBody,
+        mentions: [userId]
+    }, { quoted: message });
+};
+
+function clockString(ms) {
+    const d = Math.floor(ms / 86400000);
+    const h = Math.floor(ms / 3600000) % 24;
+    const m = Math.floor(ms / 60000) % 60;
+    const s = Math.floor(ms / 1000) % 60;
+    return `${d}d ${h}h ${m}m ${s}s`;
+}
+
+handler.help = ['mod'];
+handler.tags = ['menu'];
+handler.command = /^(menumod)$/i;
+
+export default handler;
