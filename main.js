@@ -508,3 +508,103 @@ async function filesInit() {
     for (const filename of readdirSync(pluginFolder).filter(pluginFilter)) {
         try {
             const file = global.__filename(join(pluginFolder, filename));
+            const module = await import(file);
+            global.plugins[filename] = module.default || module;
+        } catch (e) {
+            conn.logger.error(e);
+            delete global.plugins[filename];
+        }
+    }
+}
+filesInit().then((_) => Object.keys(global.plugins)).catch(console.error);
+global.reload = async (_ev, filename) => {
+    if (pluginFilter(filename)) {
+        const dir = global.__filename(join(pluginFolder, filename), true);
+        if (filename in global.plugins) {
+            if (existsSync(dir)) conn.logger.info(chalk.hex('#4920ffff')(`✅ AGGIORNATO - '${filename}' CON SUCCESSO`));
+            else {
+                conn.logger.warn(`🗑️ FILE ELIMINATO: '${filename}'`);
+                return delete global.plugins[filename];
+            }
+        } else conn.logger.info(chalk.hex('#a894ffff')(`🆕 NUOVO PLUGIN RILEVATO: '${filename}'`));
+
+        try {
+            const module = (await import(`${global.__filename(dir)}?update=${Date.now()}`));
+            global.plugins[filename] = module.default || module;
+        } catch (e) {
+            conn.logger.error(`⚠️ ERRORE NEL PLUGIN: '${filename}\n${format(e)}'`);
+        } finally {
+            global.plugins = Object.fromEntries(Object.entries(global.plugins).sort(([a], [b]) => a.localeCompare(b)));
+        }
+    }
+};
+Object.freeze(global.reload);
+const pluginWatcher = watch(pluginFolder, global.reload);
+pluginWatcher.setMaxListeners(20);
+await global.reloadHandler();
+async function _quickTest() {
+    const test = await Promise.all([
+        spawn('ffmpeg'),
+        spawn('ffprobe'),
+        spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-filter_complex', 'color', '-frames:v', '1', '-f', 'webp', '-']),
+        spawn('convert'),
+        spawn('magick'),
+        spawn('gm'),
+        spawn(platform === 'win32' ? 'where' : 'find', platform === 'win32' ? ['find'] : ['--version']),
+    ].map((p) => {
+        return Promise.race([
+            new Promise((resolve) => {
+                p.on('close', (code) => {
+                    resolve(code !== 127);
+                });
+            }),
+            new Promise((resolve) => {
+                p.on('error', (_) => resolve(false));
+            })
+        ]);
+    }));
+    const [ffmpeg, ffprobe, ffmpegWebp, convert, magick, gm, find] = test;
+    global.support = { ffmpeg, ffprobe, ffmpegWebp, convert, magick, gm, find };
+    Object.freeze(global.support);
+}
+function clearDirectory(dirPath) {
+    if (!existsSync(dirPath)) {
+        try {
+            mkdirSync(dirPath, { recursive: true });
+        } catch (e) {
+            console.error(chalk.red(`Errore nella creazione della directory ${dirPath}:`, e));
+        }
+        return 0;
+    }
+    const filenames = readdirSync(dirPath);
+    let deleted = 0;
+    filenames.forEach(file => {
+        const filePath = join(dirPath, file);
+        try {
+            const stats = statSync(filePath);
+            if (stats.isFile()) {
+                unlinkSync(filePath);
+                deleted++;
+            } else if (stats.isDirectory()) {
+                rmSync(filePath, { recursive: true, force: true });
+                deleted++;
+            }
+        } catch (e) {
+            console.error(chalk.red(`Errore nella pulizia del file ${filePath}:`, e));
+        }
+    });
+    return deleted;
+}
+setInterval(async () => {
+    if (global.stopped === 'close' || !conn || !conn.user) return;
+    const deleted = clearDirectory(join(__dirname, 'temp'));
+    if (deleted > 0) {
+        console.log(chalk.bold.greenBright(`\n╭⭑ 🟢 PULIZIA MULTIMEDIA 🟢⭑\n┃          ${deleted} FILE NELLA CARTELLA TEMP\n┃          ELIMINATI CON SUCCESSO\n╰⭑🗑️ 𝐙𝐄𝐘𝐍𝐎 𝚩𝚯𝐓 ♻️⭑`));
+    }
+}, 1000 * 60 * 60);
+_quickTest().then(() => conn.logger.info(chalk.bold.magentaBright(``)));
+let filePath = fileURLToPath(import.meta.url);
+const mainWatcher = watch(filePath, async () => {
+  console.log(chalk.bgHex('#3b0d95')(chalk.white.bold("File: 'based.js' Aggiornato")))
+});
+mainWatcher.setMaxListeners(20);
