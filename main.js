@@ -108,3 +108,103 @@ const question = (t) => {
 let opzione;
 if (!methodCodeQR && !methodCode && !fs.existsSync(`./${authFile}/creds.json`)) {
     do {
+    const cyan1 = chalk.hex('#00BFFF');     // DeepSkyBlue
+    const cyan2 = chalk.hex('#00CED1');     // DarkTurquoise
+    const cyan3 = chalk.hex('#20B2AA');     // LightSeaGreen
+    const green = chalk.hex('#2ECC71');     // Emerald
+    const whiteSoft = chalk.hex('#ECF0F1'); // Soft white
+    const redSoft = chalk.hex('#E74C3C');   // Soft red
+
+        const a = cyan1('╭━━━━━━━━━━━━━• Ƶɛყŋơცơɬ 𝐂𝐎𝐑𝐄 •━━━━━━━━━━━━━');
+    const b = cyan1('╰━━━━━━━━━━━━━• Ƶɛყŋơცơɬ 𝐄𝐍𝐃 •━━━━━━━━━━━━━');
+    const linea = cyan2('   ─────────◈────────◈─────────◈─────────');
+    const sm = cyan3.bold('   🔥 SISTEMA DI AUTENTICAZIONE 🔥');
+
+    const qr = cyan3(' ⌬') + ' ' + chalk.bold.white('MODALITÀ [1]: Sincronizzazione QR');
+    const codice = cyan3(' ⌬') + ' ' + chalk.bold.white('MODALITÀ [2]: Link tramite Codice');
+
+    const istruzioni = [
+        cyan3(' ❯') + whiteSoft.italic(' Inizializzazione protocollo di accesso...'),
+        cyan3(' ❯') + whiteSoft.italic(' Scegli un\'opzione per stabilire il link.'),
+        whiteSoft.italic(''),
+        cyan1.italic('                𝐙𝐄𝐘𝐍𝐎 𝐒𝐘𝐒𝐓𝐄𝐌 • 𝐕5.𝟎.𝟎'),
+    ];
+
+    const prompt = green.bold('\n⌬ axion-auth ➤ ');
+
+    opzione = await question(`\n
+${a}
+
+          ${sm}
+${linea}
+
+${qr}
+${codice}
+
+${linea}
+${istruzioni.join('\n')}
+
+${b}
+${prompt}`);
+
+    if (!/^[1-2]$/.test(opzione)) {
+        console.log(`\n${redSoft.bold('✖ ERRORE DI PROTOCOLLO: 𝐙𝐄𝐘𝐍𝐎-𝟒𝟎𝟒')}
+
+${whiteSoft('   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')}
+${redSoft.bold('⚠️ Input non riconosciuto dal Core.')} 
+${whiteSoft('┌─⭓ Sono validi solo i parametri')} ${chalk.bold.green('1')} ${whiteSoft('o')} ${chalk.bold.green('2')}
+${whiteSoft('└─⭓ Non inserire simboli, spazi o lettere.')}
+${green.italic('\nSupporto Tecnico: Contatta lo sviluppatore endy lo trovi nei gruppi oppure nel confing')}
+`);
+    }
+    } while ((opzione !== '1' && opzione !== '2') || fs.existsSync(`./${authFile}/creds.json`));
+}
+
+const groupMetadataCache = new NodeCache({ stdTTL: 300, useClones: false });
+global.groupCache = groupMetadataCache;
+const logger = pino({
+    level: 'silent',
+});
+global.jidCache = new NodeCache({ stdTTL: 600, useClones: false });
+global.store = makeInMemoryStore({ logger });
+
+if (!global.__storePruneInterval) {
+    global.__storePruneInterval = setInterval(() => {
+        try {
+            const store = global.store;
+            if (!store || !store.messages) return;
+
+            const MESSAGE_LIMIT = 40;
+            for (const jid of Object.keys(store.messages)) {
+                const list = store.messages[jid];
+                const arr = list?.array;
+                if (!arr || arr.length <= MESSAGE_LIMIT) continue;
+
+                const keep = new Set(arr.slice(-MESSAGE_LIMIT).map(m => m?.key?.id).filter(Boolean));
+                if (typeof list.filter === 'function') {
+                    list.filter(m => keep.has(m?.key?.id));
+                }
+            }
+
+            if (store.presences && typeof store.presences === 'object') {
+                for (const k of Object.keys(store.presences)) delete store.presences[k];
+            }
+
+            if (global.gc) global.gc();
+        } catch (e) {
+            console.error('Errore pulizia store:', e);
+        }
+    }, 5 * 60 * 1000);
+}
+
+const makeDecodeJid = (jidCache) => {
+    return (jid) => {
+        if (!jid) return jid;
+        const cached = jidCache.get(jid);
+        if (cached) return cached;
+
+        let decoded = jid;
+        if (/:\d+@/gi.test(jid)) {
+            decoded = jidNormalizedUser(jid);
+        }
+        if (typeof decoded === 'object' && decoded.user && decoded.server) {
