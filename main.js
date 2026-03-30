@@ -308,3 +308,104 @@ async function connectionUpdate(update) {
     if (global.db.data == null) await loadDatabase();
     if (qr && (opzione === '1' || methodCodeQR) && !global.qrGenerated) {
         console.log(chalk.bold.yellow(`\n 🪐 SCANSIONA IL CODICE QR - SCADE TRA 45 SECONDI 🪐`));
+        global.qrGenerated = true;
+    }
+    if (connection === 'open') {
+                const RESTART_FILE = path.resolve('./tmp/restart-state.json');
+
+        if (fs.existsSync(RESTART_FILE)) {
+            let restartInfo = null;
+            let startupErrors = 0;
+
+            try {
+                restartInfo = JSON.parse(fs.readFileSync(RESTART_FILE, 'utf-8'));
+            } catch (e) {
+                startupErrors++;
+            }
+
+            if (restartInfo?.chat) {
+                try {
+                    const elapsedMs = Date.now() - (restartInfo.startedAt || Date.now());
+                    const elapsedSec = (elapsedMs / 1000).toFixed(1);
+                    const totalErrors = (restartInfo.errors || 0) + startupErrors;
+
+                    await conn.sendMessage(restartInfo.chat, {
+                        text: `» Riavvio completato!\n⏱️ Tempo: ${elapsedSec}s\n🧾 Errori: ${totalErrors}`,
+                        mentions: restartInfo.sender ? [restartInfo.sender] : []
+                    });
+                } catch (e) {
+                    console.error('Errore invio post-restart:', e);
+                }
+            }
+
+            try {
+                fs.unlinkSync(RESTART_FILE);
+            } catch (e) {
+                console.error('Errore eliminazione file restart:', e);
+            }
+        }
+        global.qrGenerated = false;
+        global.connectionMessagesPrinted = {};
+
+        if (!global.isLogoPrinted) {
+            const finchevedotuttoviolaviola = [
+    '#00BFFF', '#00CED1', '#20B2AA', '#2ECC71', '#2ECC71', '#20B2AA', '#00CED1', '#00BFFF',
+    '#00BFFF', '#00CED1', '#20B2AA', '#2ECC71', '#2ECC71', '#20B2AA'
+];
+
+const zeynobot = [
+    ` ███████╗███████╗██╗   ██╗███╗   ██╗ ██████╗ `,
+    ` ╚══███╔╝██╔════╝╚██╗ ██╔╝████╗  ██║██╔═══██╗`,
+    `   ███╔╝ █████╗   ╚████╔╝ ██╔██╗ ██║██║   ██║`,
+    `  ███╔╝  ██╔══╝    ╚██╔╝  ██║╚██╗██║██║   ██║`,
+    ` ███████╗███████╗   ██║   ██║ ╚████║╚██████╔╝`,
+    ` ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═══╝ ╚═════╝ `
+];
+
+
+zeynobot.forEach((line, i) => {
+    const color = finchevedotuttoviolaviola[i] || finchevedotuttoviolaviola[finchevedotuttoviolaviola.length - 1];
+    // Grassetto e colore applicati direttamente a ogni riga
+    console.log(chalk.hex(color).bold(line));
+});
+
+global.isLogoPrinted = true;
+
+        }
+    }
+    if (connection === 'close') {
+        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+        if (reason === DisconnectReason.badSession) {
+            if (!global.connectionMessagesPrinted.badSession) {
+                            console.log(chalk.bold.hex('#E74C3C')(`\n⚠️❗ SESSIONE NON VALIDA, ELIMINA LA CARTELLA ${global.authFile} E SCANSIONA IL CODICE QR ⚠️`));
+                global.connectionMessagesPrinted.badSession = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.connectionLost) {
+            if (!global.connectionMessagesPrinted.connectionLost) {
+                console.log(chalk.hex('#00CED1').bold(`\nCONNESSIONE PERSA COL SERVER\nRICONNESSIONE IN CORSO... \n𝐙𝐄𝐘𝐍𝐎 𝚩𝚯𝐓`));
+                global.connectionMessagesPrinted.connectionLost = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.connectionReplaced) {
+            if (!global.connectionMessagesPrinted.connectionReplaced) {
+                console.log(chalk.hex('#00CED1').bold(`CONNESSIONE SOSTITUITA\nÈ stata aperta un'altra sessione, \nchiudi prima quella attuale.\nZEYNO BOT`));
+                global.connectionMessagesPrinted.connectionReplaced = true;
+            }
+        } else if (reason === DisconnectReason.loggedOut) {
+            console.log(chalk.bold.hex('#E74C3C')(`\n⚠️ DISCONNESSO, CARTELLA ${global.authFile} ELIMINATA. RIAVVIA IL BOT E SCANSIONA IL CODICE QR ⚠️`));
+            try {
+                if (fs.existsSync(global.authFile)) {
+                    fs.rmSync(global.authFile, { recursive: true, force: true });
+                }
+            } catch (e) {
+                console.error('Errore nell\'eliminazione della cartella sessione:', e);
+            }
+            process.exit(1);
+        } else if (reason === DisconnectReason.restartRequired) {
+            if (!global.connectionMessagesPrinted.restartRequired) {
+                console.log(chalk.hex('#00BFFF').bold(`\nCONNESSIONE AL SERVER`));
+                global.connectionMessagesPrinted.restartRequired = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.timedOut) {
