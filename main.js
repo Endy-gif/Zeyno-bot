@@ -208,3 +208,103 @@ const makeDecodeJid = (jidCache) => {
             decoded = jidNormalizedUser(jid);
         }
         if (typeof decoded === 'object' && decoded.user && decoded.server) {
+            decoded = `${decoded.user}@${decoded.server}`;
+        }
+        jidCache.set(jid, decoded);
+        return decoded;
+    };
+};
+const connectionOptions = {
+    logger: logger,
+    browser: Browsers.macOS('Safari'),
+    auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
+    decodeJid: makeDecodeJid(global.jidCache),
+    printQRInTerminal: opzione === '1' || methodCodeQR ? true : false,
+    cachedGroupMetadata: async (jid) => {
+        const cached = global.groupCache.get(jid);
+        if (cached) return cached;
+        try {
+            const metadata = await global.conn.groupMetadata(global.conn.decodeJid(jid));
+            global.groupCache.set(jid, metadata, { ttl: 300 });
+            return metadata;
+        } catch (err) {
+            console.error('Errore nel recupero dei metadati del gruppo:', err);
+            return {};
+        }
+    },
+    getMessage: async (key) => {
+        try {
+            const jid = global.conn.decodeJid(key.remoteJid);
+            const msg = await global.store.loadMessage(jid, key.id);
+            return msg?.message || undefined;
+        } catch (error) {
+            console.error('Errore in getMessage:', error);
+            return undefined;
+        }
+    },
+    msgRetryCounterCache,
+    retryRequestDelayMs: 500,
+    maxMsgRetryCount: 5,
+    shouldIgnoreJid: jid => false,
+};
+global.conn = makeWASocket(connectionOptions);
+global.store.bind(global.conn.ev);
+if (!fs.existsSync(`./${authFile}/creds.json`)) {
+    if (opzione === '2' || methodCode) {
+        opzione = '2';
+        if (!conn.authState.creds.registered) {
+            let addNumber;
+            if (phoneNumber) {
+                addNumber = phoneNumber.replace(/[^0-9]/g, '');
+            } else {
+                phoneNumber = await question(chalk.bgBlack(chalk.bold.hex('#00CED1')(`Inserisci il numero di WhatsApp.\n${chalk.bold.hex('#2ECC71')("Esempio: +393471234567")}\n${chalk.bold.hex('#00BFFF')('━━► ')}`)));
+                addNumber = phoneNumber.replace(/\D/g, '');
+                if (!phoneNumber.startsWith('+')) phoneNumber = `+${phoneNumber}`;
+            }
+            setTimeout(async () => {
+                let codeBot = await conn.requestPairingCode(addNumber, 'AXIONBOT');
+                codeBot = codeBot?.match(/.{1,4}/g)?.join("-") || codeBot;
+                console.log(chalk.bold.white(chalk.bgHex('#00CED1')('📞 CODICE DI ABBINAMENTO:')), chalk.bold.white(chalk.hex('#2ECC71')(codeBot)));
+            }, 3000);
+        }
+    }
+}
+conn.isInit = false;
+if (!opts['test']) {
+    if (global.db) setInterval(async () => {
+        if (global.db.data) await global.db.write();
+        if (opts['autocleartmp']) {
+            const tmp = ['temp'];
+            tmp.forEach(dirName => {
+                if (!existsSync(dirName)) return;
+                try {
+                    readdirSync(dirName).forEach(file => {
+                        const filePath = join(dirName, file);
+                        try {
+                            const stats = statSync(filePath);
+                            if (stats.isFile() && (Date.now() - stats.mtimeMs) > 2 * 60 * 1000) {
+                                unlinkSync(filePath);
+                            }
+                        } catch {}
+                    });
+                } catch {}
+            });
+        }
+    }, 30 * 1000);
+}
+if (opts['server']) (await import('./server.js')).default(global.conn, PORT);
+async function connectionUpdate(update) {
+    const { connection, lastDisconnect, isNewLogin, qr } = update;
+    global.stopped = connection;
+    if (isNewLogin) conn.isInit = true;
+    const code = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+    if (code && code !== DisconnectReason.loggedOut) {
+        await global.reloadHandler(true).catch(console.error);
+        global.timestamp.connect = new Date;
+    }
+    if (global.db.data == null) await loadDatabase();
+    if (qr && (opzione === '1' || methodCodeQR) && !global.qrGenerated) {
+        console.log(chalk.bold.yellow(`\n 🪐 SCANSIONA IL CODICE QR - SCADE TRA 45 SECONDI 🪐`));
