@@ -409,3 +409,102 @@ global.isLogoPrinted = true;
             }
             await global.reloadHandler(true).catch(console.error);
         } else if (reason === DisconnectReason.timedOut) {
+                console.log(chalk.hex('#00CED1').bold(`\nTIMEOUT CONNESSIONE\nRICONNESSIONE IN CORSO...\n𝐙𝐄𝐘𝐍𝐎 𝚩𝚯𝐓`));
+                global.connectionMessagesPrinted.timedOut = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason !== DisconnectReason.connectionClosed) {
+            if (!global.connectionMessagesPrinted.unknown) {
+                console.log(chalk.bold.hex('#E74C3C')(`\n⚠️❗ MOTIVO DISCONNESSIONE SCONOSCIUTO: ${reason || 'Non trovato'} >> ${connection || 'Non trovato'}`));
+                global.connectionMessagesPrinted.unknown = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        }
+    }
+}
+process.on('uncaughtException', console.error);
+(async () => {
+    try {
+        conn.ev.on('connection.update', connectionUpdate);
+        conn.ev.on('creds.update', saveCreds);
+        console.log(chalk.hex('#2ECC71').bold(`𝐙𝐄𝐘𝐍𝐎 𝚩𝚯𝐓 connesso correttamente`));
+    } catch (error) {
+        console.error(chalk.bold.bgHex('#E74C3C')(`🥀 Errore nell'avvio del bot: `, error));
+    }
+})();
+let isInit = true;
+let handler = await import('./handler.js');
+global.reloadHandler = async function (restatConn) {
+    try {
+        const Handler = await import(`./handler.js?update=${Date.now()}`).catch(console.error);
+        if (Object.keys(Handler || {}).length) handler = Handler;
+    } catch (e) {
+        console.error(e);
+    }
+    if (restatConn) {
+        try {
+            global.conn.ws.close();
+        } catch { }
+        global.cacheListenersSet = false;
+        conn.ev.removeAllListeners();
+        global.conn = makeWASocket(connectionOptions);
+        global.store.bind(global.conn.ev);
+        isInit = true;
+    }
+    if (!isInit) {
+        conn.ev.off('messages.upsert', conn.handler);
+        conn.ev.off('connection.update', conn.connectionUpdate);
+        conn.ev.off('creds.update', conn.credsUpdate);
+        if (conn.callUpdate) conn.ev.off('call', conn.callUpdate);
+    }
+    conn.handler = handler.handler.bind(global.conn);
+    conn.connectionUpdate = connectionUpdate.bind(global.conn);
+    conn.credsUpdate = saveCreds;
+    conn.callUpdate = async (calls) => {
+        try {
+            global.processedCalls = global.processedCalls || new Map();
+            for (const call of calls || []) {
+                const status = call?.status;
+                const callId = call?.id;
+                const callFrom = call?.from;
+                if (!status || !callId || !callFrom) continue;
+
+                if (status === 'terminate') {
+                    global.processedCalls.delete(callId);
+                    continue;
+                }
+                if (status !== 'offer') continue;
+                if (global.processedCalls.has(callId)) continue;
+                global.processedCalls.set(callId, true);
+
+                const anticallPlugin = global.plugins?.['anti-call.js'];
+                if (anticallPlugin && typeof anticallPlugin.onCall === 'function') {
+                    anticallPlugin.onCall.call(conn, call, { conn, callId, callFrom }).catch(() => {});
+                }
+            }
+        } catch (e) {
+            console.error('[ERRORE] Errore generale gestione chiamata:', e);
+        }
+    };
+    conn.ev.on('messages.upsert', conn.handler);
+    conn.ev.on('connection.update', conn.connectionUpdate);
+    conn.ev.on('creds.update', conn.credsUpdate);
+    conn.ev.on('call', conn.callUpdate);
+    isInit = false;
+    return true;
+};
+
+if (!global.__processedCallsCleanupInterval) {
+    global.__processedCallsCleanupInterval = setInterval(() => {
+        if (global.processedCalls && global.processedCalls.size > 10) {
+            global.processedCalls.clear();
+        }
+    }, 180000);
+}
+const pluginFolder = global.__dirname(join(__dirname, './plugins/index'));
+const pluginFilter = (filename) => /\.js$/.test(filename);
+global.plugins = {};
+async function filesInit() {
+    for (const filename of readdirSync(pluginFolder).filter(pluginFilter)) {
+        try {
+            const file = global.__filename(join(pluginFolder, filename));
