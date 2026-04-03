@@ -1,17 +1,16 @@
-import { getContentType, jidNormalizedUser } from '@realvare/baileys';
+import { getContentType } from '@realvare/baileys';
 import chalk from 'chalk';
 import config from './config.js';
 import fs from 'fs';
 import path from 'path';
 
-// ====================== GLOBAL COMMANDS ======================
+// ====================== CARICAMENTO COMANDI ======================
 global.plugins = {};
 global.commands = new Map();
 
-// Carica tutti i comandi dalla cartella commands
 const loadCommands = async () => {
     const commandsDir = path.join(process.cwd(), 'commands');
-    if (!fs.existsSync(commandsDir)) fs.mkdirSync(commandsDir);
+    if (!fs.existsSync(commandsDir)) fs.mkdirSync(commandsDir, { recursive: true });
 
     const files = fs.readdirSync(commandsDir).filter(file => file.endsWith('.js'));
 
@@ -21,7 +20,7 @@ const loadCommands = async () => {
             if (module.default) {
                 const cmd = module.default;
                 global.plugins[file.replace('.js', '')] = cmd;
-                
+
                 if (cmd.command) {
                     const cmdList = Array.isArray(cmd.command) ? cmd.command : [cmd.command];
                     cmdList.forEach(c => {
@@ -30,70 +29,85 @@ const loadCommands = async () => {
                 }
             }
         } catch (e) {
-            console.log(chalk.red(`❌ Errore nel caricamento di ${file}:`), e.message);
+            console.log(chalk.red(`❌ Errore caricamento ${file}:`), e.message);
         }
     }
-    console.log(chalk.green(`✅ Caricati ${global.commands.size} comandi`));
+    console.log(chalk.green(`✅ ${global.commands.size} comandi caricati`));
 };
 
 await loadCommands();
 
+// ====================== HANDLER PRINCIPALE ======================
 export async function handler(m) {
     if (!m) return;
 
     const conn = global.conn;
     const type = getContentType(m.message) || 'conversation';
-    const body = (m.message?.conversation || 
-                  m.message?.extendedTextMessage?.text || 
-                  m.message?.imageMessage?.caption || 
-                  m.message?.videoMessage?.caption || 
-                  '').trim();
-
-    const isCmd = body.startsWith(global.prefix.source.replace('^', '')) || 
-                  config.prefixes.some(p => body.startsWith(p));
-
-    const prefix = isCmd ? body[0] : '';
-    const args = body.slice(1).trim().split(/ +/).slice(1);
-    const command = body.slice(1).trim().split(/ +/).shift()?.toLowerCase() || '';
-    const text = args.join(" ");
+    
+    const body = (m.message?.conversation ||
+                  m.message?.extendedTextMessage?.text ||
+                  m.message?.imageMessage?.caption ||
+                  m.message?.videoMessage?.caption || '').trim();
 
     const from = m.key.remoteJid;
     const sender = m.key.participant || from;
     const pushName = m.pushName || "Utente";
     const isGroup = from.endsWith('@g.us');
-    const owner = global.owner.includes(sender.replace('@s.whatsapp.net', ''));
 
-    // ====================== RISPOSTA BASE ======================
-    m.reply = async (text, options = {}) => {
-        return await conn.sendMessage(from, { 
-            text: text 
-        }, { quoted: m, ...options });
-    };
+    // ====================== CONTROLLI PERMESSI ======================
+    const isOwner = config.isOwner(sender);
+    const isStaff = config.isStaff(sender);
+    const isPremium = config.isPremium(sender);
+
+    // ====================== PREFISSO ======================
+    const prefix = config.prefixes.find(p => body.startsWith(p));
+    const isCmd = !!prefix;
+
+    if (!isCmd) {
+        // Risposta senza prefisso (opzionale)
+        if (body.toLowerCase().startsWith('zeyno') || body.toLowerCase() === 'bot') {
+            return m.reply(`👋 Ciao ${pushName}!\nUsa *!menu* per vedere i comandi.`);
+        }
+        return;
+    }
+
+    const args = body.slice(1).trim().split(/ +/).slice(1);
+    const command = body.slice(1).trim().split(/ +/).shift()?.toLowerCase() || '';
+    const text = args.join(" ");
 
     // ====================== LOG ======================
     if (isCmd) {
         console.log(
-            chalk.black.bgGreen(` [CMD] `) + 
-            chalk.cyan(` ${command} `) +
-            chalk.gray(`from ${pushName} ${isGroup ? '(Gruppo)' : '(Privato)'}`)
+            chalk.black.bgGreen(` [CMD] `) +
+            chalk.cyan(` \( {prefix} \){command} `) +
+            chalk.gray(`| ${pushName} ${isGroup ? '(Gruppo)' : '(Privato)'}`) +
+            (isOwner ? chalk.red(' [OWNER]') : isStaff ? chalk.yellow(' [STAFF]') : '')
         );
     }
 
     // ====================== ESECUZIONE COMANDO ======================
-    if (isCmd && global.commands.has(command)) {
+    if (global.commands.has(command)) {
         const cmd = global.commands.get(command);
 
         try {
-            // Controllo Owner
-            if (cmd.owner && !owner) {
-                return m.reply("❌ Questo comando è solo per gli Owner!");
+            // --- Controllo Permessi ---
+            if (cmd.ownerOnly && !isOwner) {
+                return m.reply("❌ Questo comando è riservato solo agli **Owner**.");
             }
 
-            // Controllo Gruppo
-            if (cmd.group && !isGroup) {
-                return m.reply("❌ Questo comando può essere usato solo nei gruppi!");
+            if (cmd.staffOnly && !isStaff) {
+                return m.reply("❌ Questo comando è riservato allo **Staff**.");
             }
 
+            if (cmd.groupOnly && !isGroup) {
+                return m.reply("❌ Questo comando può essere usato solo nei **gruppi**.");
+            }
+
+            if (cmd.privateOnly && isGroup) {
+                return m.reply("❌ Questo comando può essere usato solo in **chat privata**.");
+            }
+
+            // Esegui il comando
             await cmd.execute(conn, m, {
                 command,
                 args,
@@ -102,33 +116,27 @@ export async function handler(m) {
                 sender,
                 pushName,
                 isGroup,
-                owner,
+                isOwner,
+                isStaff,
+                isPremium,
                 prefix
             });
 
         } catch (err) {
-            console.error(chalk.red(`Errore comando ${command}:`), err);
-            m.reply(`⚠️ Errore nell'esecuzione del comando:\n${err.message}`);
+            console.error(chalk.red(`Errore nel comando ${command}:`), err);
+            await m.reply(`⚠️ *Errore nell'esecuzione del comando*\n\n${err.message}`);
         }
-    }
-
-    // ====================== RISPOSTA SENZA PREFISSO (opzionale) ======================
-    if (!isCmd && body.toLowerCase().startsWith('zeyno')) {
-        m.reply("👋 Ciao! Usa !menu per vedere i comandi.");
     }
 }
 
-// ====================== ESPORTAZIONE ======================
-export default {
-    handler
-};
-
-// Ricarica automatica comandi (utile durante sviluppo)
+// ====================== AUTO RELOAD COMANDI (Sviluppo) ======================
 if (process.env.NODE_ENV !== 'production') {
-    fs.watch('./commands', (eventType, filename) => {
-        if (filename && filename.endsWith('.js')) {
-            console.log(chalk.yellow(`♻️ Ricaricamento comando: ${filename}`));
+    fs.watch('./commands', (event, filename) => {
+        if (filename?.endsWith('.js')) {
+            console.log(chalk.yellow(`♻️ Ricaricamento: ${filename}`));
             loadCommands();
         }
     });
 }
+
+export default { handler };
