@@ -3,7 +3,7 @@ dotenv.config();
 
 export default {
     botName: "Zeyno Bot",
-    version: "1.0.0",
+    version: "5.0.0",
 
     // ==================== OWNER ====================
     owners: [
