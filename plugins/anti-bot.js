@@ -1,43 +1,79 @@
-let whitelist = [];
+const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ComponentType } = require('discord.js');
 
-function rilevaDispositivoCheck(msgID = '') {
-  if (!msgID) return 'sconosciuto';
-  if (/^[a-zA-Z]+-[a-fA-F0-9]+$/.test(msgID)) return 'bot';
-  if (msgID.startsWith('false_') || msgID.startsWith('true_')) return 'web';
-  if (msgID.startsWith('3EB0') && /^[A-Z0-9]+$/.test(msgID)) return 'webbot';
-  if (msgID.includes(':')) return 'desktop';
-  if (/^[A-F0-9]{32}$/i.test(msgID)) return 'android';
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(msgID)) return 'ios';
-  if (/^[A-Z0-9]{20,25}$/i.test(msgID) && !msgID.startsWith('3EB0')) return 'ios';
-  if (msgID.startsWith('3EB0')) return 'android_old';
-  return 'sconosciuto';
-}
+module.exports = {
+    name: 'antibot',
+    description: 'Attiva/Disattiva il sistema di sicurezza',
+    prefix: '.',
+    
+    async execute(message, args, client) {
+        // Controllo se l'utente ha i permessi di Admin per attivarlo
+        if (!message.member.permissions.has('Administrator')) return;
 
-export async function before(m, { conn }) {
-  const chat = global.db.data.chats[m.chat];
-  if (!chat?.antiBot) return;
-  if (!m.isGroup || !m.sender || !m.key?.id) return;
-  const msgID = m.key?.id;
-  const device = rilevaDispositivoCheck(msgID);
-  const sospettiDispositivi = ['bot', 'web', 'webbot'];
-  if (!sospettiDispositivi.includes(device)) return;
-  const metadata = await conn.groupMetadata(m.chat);
-  const botNumber = conn.user.jid;
-  const autorizzati = [botNumber, metadata.owner, ...whitelist];
-  if (autorizzati.includes(m.sender)) return;
-  const currentAdmins = metadata.participants.filter(p => p.admin).map(p => p.id);
-  const èAdmin = currentAdmins.includes(m.sender);
-  if (èAdmin) {
-    await conn.groupParticipantsUpdate(m.chat, [m.sender], 'demote');
-    await conn.sendMessage(m.chat, {
-      text: `> 𝐑𝐈𝐋𝐄𝐕𝐀𝐓𝐎 𝐁𝐎𝐓 ⚠️\n @${m.sender.split('@')[0]} 𝐞̀ 𝐬𝐭𝐚𝐭𝐨 𝐫𝐞𝐭𝐫𝐨𝐜𝐞𝐬𝐬𝐨.\n𝑫𝒊𝒔𝒑𝒐𝒔𝒊𝒕𝒊𝒗𝒐: *${device.toUpperCase()}*`,
-      mentions: [m.sender]
-    });
-  }
-  await conn.groupParticipantsUpdate(m.chat, [m.sender], 'remove');
-  await conn.sendMessage(m.chat, {
-    text: `> 𝐑𝐈𝐋𝐄𝐕𝐀𝐓𝐎 𝐁𝐎𝐓 ⚠️\n@${m.sender.split('@')[0]} 𝐞̀ 𝐬𝐭𝐚𝐭𝐨 𝐫𝐢𝐦𝐨𝐬𝐬𝐨.\n𝑫𝒊𝒔𝒑𝒐𝒔𝒊𝒕𝒊𝒗𝒐: *${device.toUpperCase()}*`,
-    mentions: [m.sender]
-  });
-}
+        const state = args[0]?.toLowerCase();
 
+        if (state === 'on') {
+            // Messaggio di conferma attivazione
+            message.channel.send("🛡️ **Sistema Anti-Bot ATTIVATO** (Modalità Ban H24)");
+
+            // Logica di intercettazione nuovi membri (da inserire nel file principale o gestire qui)
+            client.on('guildMemberAdd', async (member) => {
+                
+                // Creazione Embed Stile Rosso/Nero
+                const verifyEmbed = new EmbedBuilder()
+                    .setColor('#FF0000') // Rosso
+                    .setTitle('𝖙𝖊𝖘𝖙 𝖉𝖎 𝖘𝖎𝖈𝖚𝖗𝖊𝖟𝖟𝖆') // Font Gothic/Bold
+                    .setDescription('⚠️ **ATTENZIONE**\nClicca il bottone qui sotto per confermare di essere umano.\nHai **24 ore** di tempo, altrimenti verrai bannato permanentemente.')
+                    .setThumbnail('https://i.imgur.com/89S9fS3.png') // Potresti mettere un'icona di un lucchetto
+                    .setFooter({ text: 'Sistema di Sicurezza Integrato' });
+
+                // Bottone Blu
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('verify_btn')
+                        .setLabel('VERIFICA ACCOUNT')
+                        .setStyle(ButtonStyle.Primary) // Blu
+                );
+
+                // Invia l'embed (effimero se fosse un comando slash, ma per i nuovi membri lo inviamo in un canale)
+                const msg = await member.guild.channels.cache.get('ID_CANALE_VERIFICA').send({
+                    content: `${member}`,
+                    embeds: [verifyEmbed],
+                    components: [row]
+                });
+
+                // Collettore per il bottone
+                const collector = msg.createMessageComponentCollector({
+                    componentType: ComponentType.Button,
+                    time: 86400000 // 24 ore in millisecondi
+                });
+
+                collector.on('collect', async (i) => {
+                    if (i.user.id !== member.id) {
+                        return i.reply({ content: "Non puoi farlo tu!", ephemeral: true });
+                    }
+                    
+                    await i.reply({ content: "✅ Verifica completata! Benvenuto.", ephemeral: true });
+                    await msg.delete(); // Rende il tutto "effimero" eliminando il messaggio
+                    collector.stop('verified');
+                });
+
+                collector.on('end', async (collected, reason) => {
+                    if (reason !== 'verified') {
+                        // Se scade il tempo: BAN
+                        await member.ban({ reason: 'Fallimento Test Anti-Bot (24h scadute)' });
+                        
+                        // Notifica in privato a te (Admin)
+                        const admin = await client.users.fetch('IL_TUO_ID_ACCOUNT');
+                        admin.send(`🚨 **LOG SICUREZZA:** L'utente **${member.user.tag}** è stato bannato per non aver completato la verifica.`);
+                    }
+                });
+            });
+
+        } else if (state === 'off') {
+            message.channel.send("⚪ **Sistema Anti-Bot DISATTIVATO**");
+            // Qui dovresti rimuovere il listener client.on
+        } else {
+            message.reply("Usa `.antibot on` oppure `.antibot off`.");
+        }
+    }
+};
