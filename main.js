@@ -378,7 +378,189 @@ async function connectionUpdate(update) {
     '#8A2BE2', '#4169E1', '#1E90FF', '#00FFFF', '#00FFFF', '#1E90FF'
 ];
 
-const zeynobot = [
-    ` ███████╗███████╗██╗   ██╗███╗   ██╗ ██████╗      ██████╗
+const logoZeyno = `
+________ ___________驰______      _________ 
+\_____  \\_   _____驰\   \  / /____  \_   ___ \
+ /   |   \|    __)_  \   \/ // __ \ /    \  \/
+/    |    \        \  \   / \  ___/ \     \____
+\_______  /_______  /   \驰/   \___  > \驰______  /
+        \/        \/              \/           \/`;
 
+// Stampa il logo in Viola Neon Grassetto
+console.log(chalk.hex('#8A2BE2').bold(logoZeyno));
+
+    if (connection === 'close') {
+        const reason = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.output?.payload?.statusCode;
+        if (reason === DisconnectReason.badSession) {
+            if (!global.connectionMessagesPrinted.badSession) {
+                            console.log(chalk.bold.hex('#FF00FF')(`\n⚠️ SESSIONE ZEYNO CORROTTA, PULISCI ${global.authFile} ⚠️`));
+                global.connectionMessagesPrinted.badSession = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.connectionLost) {
+            if (!global.connectionMessagesPrinted.connectionLost) {
+                console.log(chalk.hex('#4169E1').bold(`\nLINK ZEYNO PERSO\nRICONNESSIONE... \n𝐙𝐄𝐘𝐍𝐎 𝚩𝚯𝐓`));
+                global.connectionMessagesPrinted.connectionLost = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.connectionReplaced) {
+            if (!global.connectionMessagesPrinted.connectionReplaced) {
+                console.log(chalk.hex('#8A2BE2').bold(`COLLISIONE SESSIONE\nSessione duplicata rilevata.\n𝐙𝐄𝐘𝐍𝐎 𝐒𝐘𝐒𝐓𝐄𝐌`));
+                global.connectionMessagesPrinted.connectionReplaced = true;
+            }
+        } else if (reason === DisconnectReason.loggedOut) {
+            console.log(chalk.bold.hex('#FF0000')(`\n⚠️ ZEYNO LOGOUT, RESET SESSIONE NECESSARIO ⚠️`));
+            try {
+                if (fs.existsSync(global.authFile)) {
+                    fs.rmSync(global.authFile, { recursive: true, force: true });
+                }
+            } catch (e) {
+                console.error('Errore wipe sessione:', e);
+            }
+            process.exit(1);
+        } else if (reason === DisconnectReason.restartRequired) {
+            if (!global.connectionMessagesPrinted.restartRequired) {
+                console.log(chalk.hex('#1E90FF').bold(`\nREBOOT ZEYNO KERNEL`));
+                global.connectionMessagesPrinted.restartRequired = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason === DisconnectReason.timedOut) {
+            if (!global.connectionMessagesPrinted.timedOut) {
+                console.log(chalk.hex('#00FFFF').bold(`\nTIMEOUT ZEYNO\nRIPRISTINO...`));
+                global.connectionMessagesPrinted.timedOut = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        } else if (reason !== DisconnectReason.connectionClosed) {
+            if (!global.connectionMessagesPrinted.unknown) {
+                console.log(chalk.bold.hex('#8B0000')(`\n⚠️ ERRORE ZEYNO-UNDEF: ${reason || '??'} >> ${connection || '??'}`));
+                global.connectionMessagesPrinted.unknown = true;
+            }
+            await global.reloadHandler(true).catch(console.error);
+        }
+    }
+}
+process.on('uncaughtException', console.error);
+(async () => {
+    try {
+        conn.ev.on('connection.update', connectionUpdate);
+        conn.ev.on('creds.update', saveCreds);
+        console.log(chalk.hex('#00FFFF').bold(`𝐙𝐄𝐘𝐍𝐎 𝚩𝚯𝐓 online e operativo`));
+    } catch (error) {
+        console.error(chalk.bold.bgHex('#4B0082')(`🥀 Zeyno Boot Error: `, error));
+    }
+})();
+let isInit = true;
+let handler = await import('./handler.js');
+global.reloadHandler = async function (restatConn) {
+    try {
+        const Handler = await import(`./handler.js?update=${Date.now()}`).catch(console.error);
+        if (Object.keys(Handler || {}).length) handler = Handler;
+    } catch (e) {
+        console.error(e);
+    }
+    if (restatConn) {
+        try {
+            global.conn.ws.close();
+        } catch { }
+        global.cacheListenersSet = false;
+        conn.ev.removeAllListeners();
+        global.conn = makeWASocket(connectionOptions);
+        global.store.bind(global.conn.ev);
+        isInit = true;
+    }
+    if (!isInit) {
+        conn.ev.off('messages.upsert', conn.handler);
+        conn.ev.off('connection.update', conn.connectionUpdate);
+        conn.ev.off('creds.update', conn.credsUpdate);
+        if (conn.callUpdate) conn.ev.off('call', conn.callUpdate);
+    }
+    conn.handler = handler.handler.bind(global.conn);
+    conn.connectionUpdate = connectionUpdate.bind(global.conn);
+    conn.credsUpdate = saveCreds;
+    conn.callUpdate = async (calls) => {
+        try {
+            global.processedCalls = global.processedCalls || new Map();
+            for (const call of calls || []) {
+                const status = call?.status;
+                const callId = call?.id;
+                const callFrom = call?.from;
+                if (!status || !callId || !callFrom) continue;
+                if (status === 'terminate') {
+                    global.processedCalls.delete(callId);
+                    continue;
+                }
+                if (status !== 'offer') continue;
+                if (global.processedCalls.has(callId)) continue;
+                global.processedCalls.set(callId, true);
+                const anticallPlugin = global.plugins?.['anti-call.js'];
+                if (anticallPlugin && typeof anticallPlugin.onCall === 'function') {
+                    anticallPlugin.onCall.call(conn, call, { conn, callId, callFrom }).catch(() => {});
+                }
+            }
+        } catch (e) {
+            console.error(chalk.red.bold('🧬 ZEYNO-CALL-ERROR:'), e);
+        }
+    };
+    if (isInit) {
+        conn.ev.on('messages.upsert', conn.handler);
+        conn.ev.on('connection.update', conn.connectionUpdate);
+        conn.ev.on('creds.update', conn.credsUpdate);
+        if (conn.callUpdate) conn.ev.on('call', conn.callUpdate);
+    }
+    isInit = false;
+    return true;
+};
+global.prefix = new RegExp('^[' + ('!?./#').replace(/[|\\{}()[\]^$+*.\-\^]/g, '\\$&') + ']');
+conn.ev.on('group-participants.update', async (ani) => {
+    if (!global.db.data.settings[ani.id]?.mantenance) {
+        try {
+            let metadata = await conn.groupMetadata(ani.id);
+            let participants = ani.participants;
+            for (let num of participants) {
+                if (ani.action === 'add') {
+                    const vCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+                    terminalLog('info', `Ingresso rilevato: ${num} | Verifica: ${vCode}`);
+                    await conn.sendMessage(ani.id, {
+                        image: { url: 'https://i.ibb.co/cy0v4V1/cyber-security.jpg' },
+                        caption: `🔴 ⚫ W𝕰L𝕮OM𝕰 𝕿O 𝖅𝕰𝖄𝕹𝕺 ⚫ 🔴\n\nUtente: @${num.split('@')[0]}\nSistema: Cyber-Security\nCodice di accesso: *${vCode}*`,
+                        mentions: [num]
+                    });
+                }
+            }
+        } catch (e) {
+            terminalLog('error', `Evento Gruppo: ${e.message}`);
+        }
+    }
+});
+function terminalLog(type, msg) {
+    const time = new Date().toLocaleTimeString();
+    const color = type === 'error' ? chalk.red.bold : chalk.cyan.bold;
+    console.log(`${chalk.gray(`[${time}]`)} ${color(`[ZEYNO-${type.toUpperCase()}]`)} ${msg}`);
+}
+process.on('unhandledRejection', (reason) => {
+    terminalLog('error', `Rejection: ${reason}`);
+});
+const pluginFolder = path.join(__dirname, 'plugins');
+const pluginFilter = filename => /\.js$/.test(filename);
+global.plugins = {};
+async function loadPlugins() {
+    for (let filename of readdirSync(pluginFolder).filter(pluginFilter)) {
+        try {
+            let name = path.join(pluginFolder, filename);
+            const module = await import(pathToFileURL(name).href);
+            global.plugins[filename] = module.default || module;
+        } catch (e) {
+            terminalLog('error', `Modulo ${filename} fallito.`);
+        }
+    }
+}
+loadPlugins().then(() => terminalLog('info', 'Sistemi Zeyno Operativi.'));
+setInterval(() => {
+    if (global.store) {
+        global.store.messages = {};
+        terminalLog('info', 'RAM Cache Zeyno svuotata.');
+    }
+}, 3600000);
+// --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// STATUS: 100% OPERATIONAL | KERNEL: ZEYNO OS V2 | CALIBRATION: LINE 610 READY
 
