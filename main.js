@@ -335,4 +335,50 @@ async function connectionUpdate(update) {
         global.qrGenerated = true;
     }
     if (connection === 'open') {
+    if (connection === 'open') {
+                const RESTART_FILE = path.resolve('./tmp/restart-state.json');
+
+        if (fs.existsSync(RESTART_FILE)) {
+            let restartInfo = null;
+            let startupErrors = 0;
+
+            try {
+                restartInfo = JSON.parse(fs.readFileSync(RESTART_FILE, 'utf-8'));
+            } catch (e) {
+                startupErrors++;
+            }
+
+            if (restartInfo?.chat) {
+                try {
+                    const elapsedMs = Date.now() - (restartInfo.startedAt || Date.now());
+                    const elapsedSec = (elapsedMs / 1000).toFixed(1);
+                    const totalErrors = (restartInfo.errors || 0) + startupErrors;
+
+                    await conn.sendMessage(restartInfo.chat, {
+                        text: `» Zeyno Online!\n⏱️ Tempo: ${elapsedSec}s\n🧾 Stato: Stabile`,
+                        mentions: restartInfo.sender ? [restartInfo.sender] : []
+                    });
+                } catch (e) {
+                    console.error('Errore post-restart Zeyno:', e);
+                }
+            }
+
+            try {
+                fs.unlinkSync(RESTART_FILE);
+            } catch (e) {
+                console.error('Errore file restart Zeyno:', e);
+            }
+        }
+        global.qrGenerated = false;
+        global.connectionMessagesPrinted = {};
+
+        if (!global.isLogoPrinted) {
+            const zeynoColors = [
+    '#8A2BE2', '#4169E1', '#1E90FF', '#00FFFF', '#00FFFF', '#1E90FF', '#4169E1', '#8A2BE2',
+    '#8A2BE2', '#4169E1', '#1E90FF', '#00FFFF', '#00FFFF', '#1E90FF'
+];
+
+const zeynobot = [
+    ` ███████╗███████╗██╗   ██╗███╗   ██╗ ██████╗      ██████╗
+
 
